@@ -1,0 +1,450 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>강의 슬라이드 PDF 가림 상자 제거기</title>
+  <!-- CDN Scripts for PDF processing and decompression -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/pako/2.1.0/pako.min.js"></script>
+  <script src="https://unpkg.com/pdf-lib@1.17.1/dist/pdf-lib.min.js"></script>
+  <style>
+    :root {
+      --primary: #2563eb;
+      --primary-hover: #1d4ed8;
+      --bg: #f8fafc;
+      --card-bg: #ffffff;
+      --text: #0f172a;
+      --text-muted: #64748b;
+      --border: #e2e8f0;
+      --success: #16a34a;
+      --orange: #f97316;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --primary: #3b82f6;
+        --primary-hover: #60a5fa;
+        --bg: #090d16;
+        --card-bg: #131c2e;
+        --text: #f1f5f9;
+        --text-muted: #94a3b8;
+        --border: #1e293b;
+        --success: #22c55e;
+      }
+    }
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+      -webkit-tap-highlight-color: transparent;
+    }
+    body {
+      background-color: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 16px;
+    }
+    .container {
+      width: 100%;
+      max-width: 480px;
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+      margin: auto 0;
+    }
+    .header {
+      text-align: center;
+      padding: 12px 0;
+    }
+    .header h1 {
+      font-size: 1.4rem;
+      font-weight: 700;
+      letter-spacing: -0.02em;
+      margin-bottom: 6px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+    }
+    .header p {
+      font-size: 0.88rem;
+      color: var(--text-muted);
+      line-height: 1.4;
+    }
+    .card {
+      background: var(--card-bg);
+      border: 1px solid var(--border);
+      border-radius: 20px;
+      padding: 24px;
+      box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.05), 0 8px 10px -6px rgba(0, 0, 0, 0.01);
+      transition: all 0.2s ease;
+    }
+    .upload-area {
+      border: 2px dashed var(--border);
+      border-radius: 16px;
+      padding: 32px 16px;
+      text-align: center;
+      cursor: pointer;
+      background: rgba(37, 99, 235, 0.02);
+      transition: border-color 0.2s, background 0.2s;
+    }
+    .upload-area:hover, .upload-area.dragover {
+      border-color: var(--primary);
+      background: rgba(37, 99, 235, 0.06);
+    }
+    .upload-icon {
+      font-size: 2.8rem;
+      margin-bottom: 12px;
+      display: block;
+    }
+    .upload-title {
+      font-size: 1rem;
+      font-weight: 600;
+      margin-bottom: 4px;
+    }
+    .upload-desc {
+      font-size: 0.8rem;
+      color: var(--text-muted);
+    }
+    input[type="file"] {
+      display: none;
+    }
+    .file-info {
+      display: none;
+      margin-top: 16px;
+      padding: 14px;
+      background: rgba(0, 0, 0, 0.03);
+      border-radius: 12px;
+      font-size: 0.85rem;
+    }
+    .file-info.active {
+      display: block;
+    }
+    .file-name {
+      font-weight: 600;
+      word-break: break-all;
+      margin-bottom: 4px;
+    }
+    .file-meta {
+      color: var(--text-muted);
+      font-size: 0.78rem;
+    }
+    .btn {
+      width: 100%;
+      padding: 16px;
+      border: none;
+      border-radius: 14px;
+      background: var(--primary);
+      color: #ffffff;
+      font-size: 1rem;
+      font-weight: 600;
+      cursor: pointer;
+      margin-top: 18px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      box-shadow: 0 4px 12px rgba(37, 99, 235, 0.3);
+      transition: background 0.2s, transform 0.1s, opacity 0.2s;
+    }
+    .btn:active {
+      transform: scale(0.98);
+    }
+    .btn:disabled {
+      background: var(--text-muted);
+      opacity: 0.5;
+      cursor: not-allowed;
+      box-shadow: none;
+    }
+    .progress-box {
+      display: none;
+      margin-top: 16px;
+    }
+    .progress-box.active {
+      display: block;
+    }
+    .progress-bar-bg {
+      width: 100%;
+      height: 8px;
+      background: var(--border);
+      border-radius: 4px;
+      overflow: hidden;
+      margin-bottom: 8px;
+    }
+    .progress-bar-fill {
+      width: 0%;
+      height: 100%;
+      background: var(--primary);
+      border-radius: 4px;
+      transition: width 0.15s ease;
+    }
+    .progress-status {
+      font-size: 0.8rem;
+      color: var(--text-muted);
+      text-align: center;
+    }
+    .result-box {
+      display: none;
+      margin-top: 18px;
+      padding: 16px;
+      border-radius: 14px;
+      background: rgba(22, 163, 74, 0.1);
+      border: 1px solid rgba(22, 163, 74, 0.3);
+      text-align: center;
+    }
+    .result-box.active {
+      display: block;
+    }
+    .result-title {
+      font-size: 1rem;
+      font-weight: 700;
+      color: var(--success);
+      margin-bottom: 6px;
+    }
+    .result-desc {
+      font-size: 0.85rem;
+      color: var(--text);
+      line-height: 1.4;
+      margin-bottom: 12px;
+    }
+    .btn-download {
+      background: var(--success);
+      box-shadow: 0 4px 12px rgba(22, 163, 74, 0.3);
+    }
+    .tip-box {
+      background: var(--card-bg);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      padding: 16px;
+      font-size: 0.8rem;
+      color: var(--text-muted);
+      line-height: 1.5;
+    }
+    .tip-box strong {
+      color: var(--text);
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <h1>📄 슬라이드 완성본 복원기</h1>
+      <p>가려진 주황색 네모 상자를 완벽 제거하고 원본 텍스트를 복원합니다</p>
+    </div>
+
+    <div class="card">
+      <div class="upload-area" id="dropArea" onclick="document.getElementById('fileInput').click()">
+        <span class="upload-icon">📂</span>
+        <div class="upload-title">PDF 파일 선택 또는 드래그</div>
+        <div class="upload-desc">모바일에서는 터치하여 파일 앱이나 사진에서 선택</div>
+      </div>
+      <input type="file" id="fileInput" accept="application/pdf">
+
+      <div class="file-info" id="fileInfo">
+        <div class="file-name" id="fileName">파일명</div>
+        <div class="file-meta" id="fileMeta">파일 크기: 0 MB</div>
+      </div>
+
+      <button class="btn" id="processBtn" disabled onclick="processPDF()">
+        ✨ 가림 상자 제거 및 복원 시작
+      </button>
+
+      <div class="progress-box" id="progressBox">
+        <div class="progress-bar-bg">
+          <div class="progress-bar-fill" id="progressFill"></div>
+        </div>
+        <div class="progress-status" id="progressText">준비 중...</div>
+      </div>
+
+      <div class="result-box" id="resultBox">
+        <div class="result-title">🎉 복원 완료!</div>
+        <div class="result-desc" id="resultDesc"></div>
+        <button class="btn btn-download" id="downloadBtn" onclick="downloadResult()">
+          ⬇️ 완성본 PDF 다운로드
+        </button>
+      </div>
+    </div>
+
+    <div class="tip-box">
+      💡 <strong>스마트폰 꿀팁</strong><br>
+      • <strong>홈 화면에 추가</strong>: 브라우저 메뉴에서 [홈 화면에 추가]를 누르면 진짜 앱처럼 언제든 바로 실행됩니다.<br>
+      • <strong>보안 보장</strong>: 파일이 외부 서버로 전송되지 않고 스마트폰 기기 내부에서만 100% 안전하게 처리됩니다.
+    </div>
+  </div>
+
+  <script>
+    let currentFile = null;
+    let resultBlobUrl = null;
+    let outputFilename = "완성본.pdf";
+
+    const fileInput = document.getElementById('fileInput');
+    const dropArea = document.getElementById('dropArea');
+    const fileInfo = document.getElementById('fileInfo');
+    const fileName = document.getElementById('fileName');
+    const fileMeta = document.getElementById('fileMeta');
+    const processBtn = document.getElementById('processBtn');
+    const progressBox = document.getElementById('progressBox');
+    const progressFill = document.getElementById('progressFill');
+    const progressText = document.getElementById('progressText');
+    const resultBox = document.getElementById('resultBox');
+    const resultDesc = document.getElementById('resultDesc');
+
+    fileInput.addEventListener('change', (e) => {
+      if (e.target.files.length > 0) {
+        handleFileSelect(e.target.files[0]);
+      }
+    });
+
+    ['dragenter', 'dragover'].forEach(eventName => {
+      dropArea.addEventListener(eventName, (e) => {
+        e.preventDefault();
+        dropArea.classList.add('dragover');
+      }, false);
+    });
+
+    ['dragleave', 'drop'].forEach(eventName => {
+      dropArea.addEventListener(eventName, (e) => {
+        e.preventDefault();
+        dropArea.classList.remove('dragover');
+      }, false);
+    });
+
+    dropArea.addEventListener('drop', (e) => {
+      const dt = e.dataTransfer;
+      if (dt.files.length > 0) {
+        handleFileSelect(dt.files[0]);
+      }
+    });
+
+    function handleFileSelect(file) {
+      if (file.type !== 'application/pdf' && !file.name.toLowerCase().endsWith('.pdf')) {
+        alert('PDF 파일만 선택해 주세요.');
+        return;
+      }
+      currentFile = file;
+      fileName.textContent = file.name;
+      fileMeta.textContent = '크기: ' + (file.size / (1024 * 1024)).toFixed(2) + ' MB';
+      fileInfo.classList.add('active');
+      processBtn.disabled = false;
+      resultBox.classList.remove('active');
+      progressBox.classList.remove('active');
+
+      const dotIdx = file.name.lastIndexOf('.');
+      if (dotIdx !== -1) {
+        outputFilename = file.name.substring(0, dotIdx) + '_완성본.pdf';
+      } else {
+        outputFilename = file.name + '_완성본.pdf';
+      }
+    }
+
+    async function processPDF() {
+      if (!currentFile) return;
+
+      processBtn.disabled = true;
+      progressBox.classList.add('active');
+      resultBox.classList.remove('active');
+      progressFill.style.width = '10%';
+      progressText.textContent = 'PDF 문서를 분석하는 중...';
+
+      try {
+        const arrayBuffer = await currentFile.arrayBuffer();
+        const { PDFDocument, PDFName } = PDFLib;
+
+        progressFill.style.width = '30%';
+        progressText.textContent = '슬라이드 구조 해석 중...';
+
+        const pdfDoc = await PDFDocument.load(arrayBuffer);
+        const pages = pdfDoc.getPages();
+        const totalPages = pages.length;
+
+        let modifiedPagesCount = 0;
+
+        for (let i = 0; i < totalPages; i++) {
+          const page = pages[i];
+          const percent = 30 + Math.round(((i + 1) / totalPages) * 50);
+          progressFill.style.width = percent + '%';
+          progressText.textContent = '슬라이드 검사 중... (' + (i + 1) + ' / ' + totalPages + ')';
+
+          const contentsRef = page.node.Contents();
+          if (!contentsRef) continue;
+
+          const contentsObj = pdfDoc.context.lookup(contentsRef);
+          if (!contentsObj) continue;
+
+          let rawBytes = contentsObj.getContents();
+          const filter = contentsObj.dict.get(PDFName.of('Filter'));
+          let isFlate = false;
+
+          if (filter && filter.toString() === '/FlateDecode') {
+            try {
+              rawBytes = pako.inflate(rawBytes);
+              isFlate = true;
+            } catch (err) {
+              console.warn('Inflate error on page ' + (i + 1), err);
+              continue;
+            }
+          }
+
+          const decodedStr = new TextDecoder('latin1').decode(rawBytes);
+
+          // Orange stroke operator regex: 0.929 0.49 0.192 RG (or close variants)
+          const orangeRegex = /0\.9\d*\s+0\.4\d*\s+0\.1\d*\s+RG/;
+          const match = orangeRegex.exec(decodedStr);
+
+          if (match) {
+            const rgIdx = match.index;
+            const mcidIdx = decodedStr.lastIndexOf('/P <</MCID', rgIdx);
+            if (mcidIdx !== -1) {
+              const cleanedStr = decodedStr.substring(0, mcidIdx);
+              const cleanedBytes = new TextEncoder('latin1').encode(cleanedStr);
+              const newStreamRef = pdfDoc.context.register(pdfDoc.context.flateStream(cleanedBytes));
+              page.node.set(PDFName.of('Contents'), newStreamRef);
+              modifiedPagesCount++;
+            }
+          }
+        }
+
+        progressFill.style.width = '90%';
+        progressText.textContent = '완성본 PDF 생성 및 저장 중...';
+
+        const savedBytes = await pdfDoc.save();
+        const blob = new Blob([savedBytes], { type: 'application/pdf' });
+
+        if (resultBlobUrl) {
+          URL.revokeObjectURL(resultBlobUrl);
+        }
+        resultBlobUrl = URL.createObjectURL(blob);
+
+        progressFill.style.width = '100%';
+        progressText.textContent = '완료되었습니다!';
+
+        resultDesc.innerHTML = '총 <strong>' + totalPages + '</strong>개 슬라이드 중 <strong>' + modifiedPagesCount + '</strong>개 슬라이드의 가림 상자가 완벽하게 제거되었습니다.';
+        resultBox.classList.add('active');
+        processBtn.disabled = false;
+
+        // Auto trigger download
+        downloadResult();
+
+      } catch (error) {
+        console.error(error);
+        alert('처리 중 오류가 발생했습니다: ' + error.message);
+        progressBox.classList.remove('active');
+        processBtn.disabled = false;
+      }
+    }
+
+    function downloadResult() {
+      if (!resultBlobUrl) return;
+      const a = document.createElement('a');
+      a.href = resultBlobUrl;
+      a.download = outputFilename;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+    }
+  </script>
+</body>
+</html>
